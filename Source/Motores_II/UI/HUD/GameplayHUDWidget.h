@@ -4,18 +4,28 @@
 #include "Blueprint/UserWidget.h"
 #include "GameplayHUDWidget.generated.h"
 
+class UProgressBar;
+class UHealthComponent;
+
 UCLASS()
 class MOTORES_II_API UGameplayHUDWidget : public UUserWidget
 {
 	GENERATED_BODY()
 
 public:
-	UFUNCTION(BlueprintImplementableEvent, Category = "HUD")
-	void UpdateHealth(float CurrentHealth, float MaxHealth);
+	UFUNCTION(BlueprintCallable)
+	void InitializeHealth(UHealthComponent* HealthComp);
 
-	UFUNCTION(BlueprintImplementableEvent, Category = "HUD")
-	void UpdateScore(int32 NewScore);
+protected:
+	virtual void NativeConstruct() override;
 
-	UFUNCTION(BlueprintImplementableEvent, Category = "HUD")
-	void UpdateTimer(float RemainingTime);
+	UPROPERTY(meta = (BindWidget))
+	UProgressBar* HealthBar;
+
+	UFUNCTION()
+	void OnHealthChanged(float CurrentHealth, float MaxHealth);
+
+private:
+	UPROPERTY()
+	UHealthComponent* CachedHealthComponent;
 };

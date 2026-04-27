@@ -1,75 +1,54 @@
 #include "Characters/PlayerCharacter.h"
+#include "Components/HealthComponent.h"
+#include "Components/InputComponent.h"
+#include "InputCoreTypes.h"
 
 APlayerCharacter::APlayerCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 	PrimaryActorTick.bCanEverTick = false;
+
+	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("HealthComponent"));
 }
 
 void APlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
-	CurrentHealth = MaxHealth;
-	bIsDead = false;
-
-	BroadcastHealthChanged();
-
-	// TEST
-	FTimerHandle TimerHandle;
-	GetWorld()->GetTimerManager().SetTimer(
-		TimerHandle,
-		[this]()
-		{
-			ReceiveDamage(20.0f);
-		},
-		2.0f,
-		false
-	);
-}
-
-void APlayerCharacter::ReceiveDamage(float DamageAmount)
-{
-	if (bIsDead || DamageAmount <= 0.0f)
+	if (HealthComponent)
 	{
-		return;
-	}
-
-	CurrentHealth = FMath::Clamp(CurrentHealth - DamageAmount, 0.0f, MaxHealth);
-	BroadcastHealthChanged();
-
-	if (CurrentHealth <= 0.0f)
-	{
-		HandleDeath();
+		HealthComponent->OnDeath.AddDynamic(this, &APlayerCharacter::HandleDeath);
 	}
 }
 
-void APlayerCharacter::Heal(float HealAmount)
+void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
-	if (bIsDead || HealAmount <= 0.0f)
+	Super::SetupPlayerInputComponent(PlayerInputComponent);
+
+	if (PlayerInputComponent)
 	{
+		PlayerInputComponent->BindKey(EKeys::H, IE_Pressed, this, &APlayerCharacter::TestDamage);
+	}
+}
+
+void APlayerCharacter::TestDamage()
+{
+	if (!HealthComponent)
+	{
+		UE_LOG(LogTemp, Error, TEXT("HealthComponent is null."));
 		return;
 	}
+	
+	UE_LOG(LogTemp, Warning, TEXT("Test damage applied."));
+	HealthComponent->ApplyDamage(20.0f);
+}
 
-	CurrentHealth = FMath::Clamp(CurrentHealth + HealAmount, 0.0f, MaxHealth);
-	BroadcastHealthChanged();
+UHealthComponent* APlayerCharacter::GetHealthComponent() const
+{
+	return HealthComponent;
 }
 
 void APlayerCharacter::HandleDeath()
 {
-	if (bIsDead)
-	{
-		return;
-	}
-
-	bIsDead = true;
-	OnDeath.Broadcast();
-
-	DisableInput(nullptr);
-	
-}
-
-void APlayerCharacter::BroadcastHealthChanged()
-{
-	OnHealthChanged.Broadcast(CurrentHealth, MaxHealth);
+	UE_LOG(LogTemp, Warning, TEXT("Player died."));
 }

@@ -4,8 +4,7 @@
 #include "SSTCharacter.h"
 #include "PlayerCharacter.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHealthChangedSignature, float, CurrentHealth, float, MaxHealth);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDeathSignature);
+class UHealthComponent;
 
 UCLASS()
 class MOTORES_II_API APlayerCharacter : public ASSTCharacter
@@ -14,42 +13,21 @@ class MOTORES_II_API APlayerCharacter : public ASSTCharacter
 
 public:
 	APlayerCharacter(const FObjectInitializer& ObjectInitializer);
-
+	
+	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+	
 	virtual void BeginPlay() override;
 
-	UFUNCTION(BlueprintCallable, Category = "Health")
-	void ReceiveDamage(float DamageAmount);
-
-	UFUNCTION(BlueprintCallable, Category = "Health")
-	void Heal(float HealAmount);
-
-	UFUNCTION(BlueprintPure, Category = "Health")
-	float GetCurrentHealth() const { return CurrentHealth; }
-
-	UFUNCTION(BlueprintPure, Category = "Health")
-	float GetMaxHealth() const { return MaxHealth; }
-
-	UFUNCTION(BlueprintPure, Category = "Health")
-	bool IsDead() const { return bIsDead; }
-
-	UPROPERTY(BlueprintAssignable, Category = "Events")
-	FOnHealthChangedSignature OnHealthChanged;
-
-	UPROPERTY(BlueprintAssignable, Category = "Events")
-	FOnDeathSignature OnDeath;
+	UFUNCTION(BlueprintPure, Category = "Components")
+	UHealthComponent* GetHealthComponent() const;
+	
+	void TestDamage();
 
 protected:
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Health", meta = (ClampMin = "1.0"))
-	float MaxHealth = 100.0f;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	UHealthComponent* HealthComponent;
 
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Health")
-	float CurrentHealth = 100.0f;
+	UFUNCTION()
+	void HandleDeath();
 
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Health")
-	bool bIsDead = false;
-
-	virtual void HandleDeath();
-
-private:
-	void BroadcastHealthChanged();
 };
