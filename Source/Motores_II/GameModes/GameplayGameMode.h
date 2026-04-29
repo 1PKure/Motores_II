@@ -2,10 +2,11 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+
 #include "GameplayGameMode.generated.h"
 
 class UGameplayHUDWidget;
-class UUserWidget;
+class UEndGameWidget;
 
 UCLASS()
 class MOTORES_II_API AGameplayGameMode : public AGameModeBase
@@ -15,21 +16,28 @@ class MOTORES_II_API AGameplayGameMode : public AGameModeBase
 public:
 	virtual void BeginPlay() override;
 
+	void RestartGameplayLevel();
+	void ReturnToMainMenu();
+
 protected:
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "UI")
 	TSubclassOf<UGameplayHUDWidget> GameplayHUDWidgetClass;
-	
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
-	TSubclassOf<UUserWidget> DefeatWidgetClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "UI")
+	TSubclassOf<UEndGameWidget> DefeatWidgetClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Levels")
+	FName MainMenuLevelName = "MainMenu";
 
 	UPROPERTY()
 	UGameplayHUDWidget* GameplayHUDWidgetInstance;
-	
+
 	UPROPERTY()
-	UUserWidget* DefeatWidgetInstance;
+	UEndGameWidget* DefeatWidgetInstance;
 
 	UFUNCTION()
 	void HandlePlayerDeath();
 
+private:
 	void ShowDefeatScreen();
 };

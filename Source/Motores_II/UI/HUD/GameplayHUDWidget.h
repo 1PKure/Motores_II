@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+
 #include "GameplayHUDWidget.generated.h"
 
 class UProgressBar;
@@ -13,7 +14,7 @@ class MOTORES_II_API UGameplayHUDWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, Category = "Health")
 	void InitializeHealth(UHealthComponent* HealthComp);
 
 protected:
