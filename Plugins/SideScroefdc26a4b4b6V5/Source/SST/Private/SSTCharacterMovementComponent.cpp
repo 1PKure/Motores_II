@@ -662,11 +662,14 @@ void USSTCharacterMovementComponent::AddInputVector(FVector WorldVector, bool bF
 
 bool USSTCharacterMovementComponent::DoJump(bool bReplayingMoves)
 {
-	bool InWallslide = CanWalljump();
+	bool InWallSlide = CanWalljump();
 	bool InDash = IsDashing;
-	if (Super::DoJump(bReplayingMoves))
+
+	const bool bDidJump = Super::DoJump(bReplayingMoves);
+
+	if (bDidJump)
 	{
-		if (InWallslide)
+		if (InWallSlide)
 		{
 			PerformWallJump();
 			ExitWallslide();
@@ -677,9 +680,9 @@ bool USSTCharacterMovementComponent::DoJump(bool bReplayingMoves)
 			ExitDash(true);
 			SetMovementMode(MOVE_Falling);
 		}
-		return true;
 	}
-	return false;
+
+	return bDidJump;
 }
 
 bool USSTCharacterMovementComponent::CanCrouchInCurrentState() const

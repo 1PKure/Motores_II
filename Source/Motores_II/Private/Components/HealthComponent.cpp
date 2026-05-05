@@ -33,6 +33,7 @@ void UHealthComponent::ApplyDamage(float DamageAmount)
 	if (CurrentHealth <= 0.0f)
 	{
 		bIsDead = true;
+		UE_LOG(LogTemp, Error, TEXT("OnDeath broadcast"));
 		OnDeath.Broadcast();
 	}
 }

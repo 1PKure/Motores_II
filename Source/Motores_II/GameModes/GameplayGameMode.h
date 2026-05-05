@@ -27,7 +27,7 @@ protected:
 	TSubclassOf<UEndGameWidget> DefeatWidgetClass;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Levels")
-	FName MainMenuLevelName = "MainMenu";
+	FName MainMenuLevelName = "LV_MainMenu";
 
 	UPROPERTY()
 	UGameplayHUDWidget* GameplayHUDWidgetInstance;
@@ -40,4 +40,5 @@ protected:
 
 private:
 	void ShowDefeatScreen();
+	void RemoveDuplicatedGameplayHUDWidgets();
 };
