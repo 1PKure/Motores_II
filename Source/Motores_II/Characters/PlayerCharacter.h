@@ -22,6 +22,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Components")
 	UHealthComponent* GetHealthComponent() const;
 	
+	UFUNCTION(BlueprintCallable, Category = "Powerups")
+	void ApplySpeedBoost(float SpeedMultiplier, float Duration);
+
 	void TestDamage();
 
 protected:
@@ -30,5 +33,20 @@ protected:
 
 	UFUNCTION()
 	void HandleDeath();
+	
+	UFUNCTION()
+	void HandleAnyDamage(
+		AActor* DamagedActor,
+		float Damage,
+		const UDamageType* DamageType,
+		AController* InstigatedBy,
+		AActor* DamageCauser
+	);
+	
+private:
+	FTimerHandle SpeedBoostTimerHandle;
 
+	float DefaultWalkSpeed;
+
+	void ResetSpeedBoost();
 };

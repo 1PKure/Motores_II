@@ -1,91 +1,52 @@
 #include "GameModes/GameplayGameMode.h"
 
-#include "UI/HUD/GameplayHUDWidget.h"
-#include "Public/Widgets/EndGameWidget.h"
-
-#include "Characters/PlayerCharacter.h"
-#include "Components/HealthComponent.h"
-
+#include "Controllers/GamePlayerController.h"
 #include "Kismet/GameplayStatics.h"
-#include "GameFramework/PlayerController.h"
-#include "Blueprint/WidgetBlueprintLibrary.h"
+
+AGameplayGameMode::AGameplayGameMode()
+{
+	MainMenuLevelName = TEXT("LV_MainMenu");
+	CurrentResult = EGameplayResult::None;
+}
 
 void AGameplayGameMode::BeginPlay()
 {
 	Super::BeginPlay();
 
-	APlayerController* PlayerController = UGameplayStatics::GetPlayerController(this, 0);
-	if (!PlayerController)
-	{
-		return;
-	}
-
-	// Limpia cualquier HUD previo antes de crear el oficial.
-	RemoveDuplicatedGameplayHUDWidgets();
-
-	if (GameplayHUDWidgetClass)
-	{
-		GameplayHUDWidgetInstance = CreateWidget<UGameplayHUDWidget>(
-			PlayerController,
-			GameplayHUDWidgetClass
-		);
-
-		if (GameplayHUDWidgetInstance)
-		{
-			GameplayHUDWidgetInstance->AddToViewport(9999);
-		}
-	}
-
-	APlayerCharacter* PlayerCharacter = Cast<APlayerCharacter>(PlayerController->GetPawn());
-	if (!PlayerCharacter)
-	{
-		return;
-	}
-
-	UHealthComponent* HealthComponent = PlayerCharacter->GetHealthComponent();
-	if (!HealthComponent)
-	{
-		return;
-	}
-
-	if (GameplayHUDWidgetInstance)
-	{
-		GameplayHUDWidgetInstance->InitializeHealth(HealthComponent);
-	}
-
-	HealthComponent->OnDeath.RemoveDynamic(this, &AGameplayGameMode::HandlePlayerDeath);
-	HealthComponent->OnDeath.AddDynamic(this, &AGameplayGameMode::HandlePlayerDeath);
-
-	GetWorldTimerManager().SetTimerForNextTick(this, &AGameplayGameMode::RemoveDuplicatedGameplayHUDWidgets);
+	CurrentResult = EGameplayResult::None;
 }
 
-void AGameplayGameMode::HandlePlayerDeath()
+void AGameplayGameMode::HandleVictory()
 {
-	UE_LOG(LogTemp, Error, TEXT("GameMode received death"));
-	ShowDefeatScreen();
+	FinishMatch(EGameplayResult::Victory);
 }
 
-void AGameplayGameMode::ShowDefeatScreen()
+void AGameplayGameMode::HandleDefeat()
 {
-	APlayerController* PlayerController = UGameplayStatics::GetPlayerController(this, 0);
-	if (!PlayerController || !DefeatWidgetClass) return;
+	FinishMatch(EGameplayResult::Defeat);
+}
 
-	DefeatWidgetInstance = CreateWidget<UEndGameWidget>(
-		PlayerController,
-		DefeatWidgetClass
-	);
+void AGameplayGameMode::FinishMatch(EGameplayResult Result)
+{
+	if (IsMatchFinished())
+	{
+		return;
+	}
 
-	if (!DefeatWidgetInstance) return;
+	CurrentResult = Result;
 
-	DefeatWidgetInstance->InitializeEndGameWidget(this);
-	DefeatWidgetInstance->AddToViewport(10000);
+	AGamePlayerController* GamePlayerController =
+		Cast<AGamePlayerController>(UGameplayStatics::GetPlayerController(this, 0));
 
-	PlayerController->SetPause(true);
-	PlayerController->bShowMouseCursor = true;
+	if (!IsValid(GamePlayerController))
+	{
+		UE_LOG(LogTemp, Error, TEXT("FinishMatch failed: GamePlayerController is invalid."));
+		return;
+	}
 
-	FInputModeUIOnly InputMode;
-	InputMode.SetWidgetToFocus(DefeatWidgetInstance->TakeWidget());
-	PlayerController->SetInputMode(InputMode);
+	GamePlayerController->HandleMatchFinished(Result);
+
+	UE_LOG(LogTemp, Warning, TEXT("Match finished. Result: %d"), static_cast<int32>(Result));
 }
 
 void AGameplayGameMode::RestartGameplayLevel()
@@ -102,34 +63,7 @@ void AGameplayGameMode::ReturnToMainMenu()
 	UGameplayStatics::OpenLevel(this, MainMenuLevelName);
 }
 
-void AGameplayGameMode::RemoveDuplicatedGameplayHUDWidgets()
+bool AGameplayGameMode::IsMatchFinished() const
 {
-	if (!GameplayHUDWidgetClass)
-	{
-		return;
-	}
-
-	TArray<UUserWidget*> FoundWidgets;
-	UWidgetBlueprintLibrary::GetAllWidgetsOfClass(
-		this,
-		FoundWidgets,
-		GameplayHUDWidgetClass,
-		false
-	);
-
-	for (UUserWidget* Widget : FoundWidgets)
-	{
-		if (!Widget)
-		{
-			continue;
-		}
-		
-		if (Widget == GameplayHUDWidgetInstance)
-		{
-			continue;
-		}
-
-		UE_LOG(LogTemp, Warning, TEXT("Removing duplicated Gameplay HUD: %s"), *Widget->GetName());
-		Widget->RemoveFromParent();
-	}
+	return CurrentResult != EGameplayResult::None;
 }

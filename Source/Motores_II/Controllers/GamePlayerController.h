@@ -2,11 +2,13 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "GameModes/GameplayGameMode.h"
 #include "GamePlayerController.generated.h"
 
 class UUserWidget;
 class UPauseMenuWidget;
 class UGameplayHUDWidget;
+
 UCLASS()
 class MOTORES_II_API AGamePlayerController : public APlayerController
 {
@@ -15,7 +17,13 @@ class MOTORES_II_API AGamePlayerController : public APlayerController
 public:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
+	
+	UFUNCTION(BlueprintCallable, Category = "Gameplay UI")
+	void HandleMatchFinished(EGameplayResult Result);
 
+	UFUNCTION(BlueprintCallable, Category = "Gameplay UI")
+	UGameplayHUDWidget* GetGameplayHUDWidget() const;
+	
 	UFUNCTION(BlueprintCallable)
 	void TogglePauseMenu();
 
@@ -49,4 +57,5 @@ private:
 
 	void OpenPauseMenu();
 	void ClosePauseMenu();
+	void SetGameplayInputEnabled(bool bEnabled);
 };

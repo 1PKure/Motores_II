@@ -2,6 +2,9 @@
 #include "Components/HealthComponent.h"
 #include "Components/InputComponent.h"
 #include "InputCoreTypes.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "GameModes/GameplayGameMode.h"
+#include "Kismet/GameplayStatics.h"
 
 APlayerCharacter::APlayerCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -19,6 +22,8 @@ void APlayerCharacter::BeginPlay()
 	{
 		HealthComponent->OnDeath.AddDynamic(this, &APlayerCharacter::HandleDeath);
 	}
+	
+	OnTakeAnyDamage.AddDynamic(this, &APlayerCharacter::HandleAnyDamage);
 }
 
 void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -51,4 +56,74 @@ UHealthComponent* APlayerCharacter::GetHealthComponent() const
 void APlayerCharacter::HandleDeath()
 {
 	UE_LOG(LogTemp, Warning, TEXT("Player died."));
+
+	AGameplayGameMode* GameplayGameMode = Cast<AGameplayGameMode>(UGameplayStatics::GetGameMode(this));
+
+	if (!IsValid(GameplayGameMode))
+	{
+		UE_LOG(LogTemp, Error, TEXT("HandleDeath failed: GameplayGameMode is invalid."));
+		return;
+	}
+
+	GameplayGameMode->HandleDefeat();
+}
+
+void APlayerCharacter::ApplySpeedBoost(float SpeedMultiplier, float Duration)
+{
+	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
+
+	if (!IsValid(MovementComponent))
+	{
+		return;
+	}
+
+	if (DefaultWalkSpeed <= 0.0f)
+	{
+		DefaultWalkSpeed = MovementComponent->MaxWalkSpeed;
+	}
+
+	MovementComponent->MaxWalkSpeed = DefaultWalkSpeed * SpeedMultiplier;
+
+	GetWorldTimerManager().ClearTimer(SpeedBoostTimerHandle);
+	GetWorldTimerManager().SetTimer(
+		SpeedBoostTimerHandle,
+		this,
+		&APlayerCharacter::ResetSpeedBoost,
+		Duration,
+		false
+	);
+}
+
+void APlayerCharacter::ResetSpeedBoost()
+{
+	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
+
+	if (!IsValid(MovementComponent))
+	{
+		return;
+	}
+
+	MovementComponent->MaxWalkSpeed = DefaultWalkSpeed;
+}
+
+void APlayerCharacter::HandleAnyDamage(
+	AActor* DamagedActor,
+	float Damage,
+	const UDamageType* DamageType,
+	AController* InstigatedBy,
+	AActor* DamageCauser
+)
+{
+	if (Damage <= 0.0f)
+	{
+		return;
+	}
+
+	if (!IsValid(HealthComponent))
+	{
+		UE_LOG(LogTemp, Error, TEXT("HandleAnyDamage failed: HealthComponent is invalid."));
+		return;
+	}
+
+	HealthComponent->ApplyDamage(Damage);
 }

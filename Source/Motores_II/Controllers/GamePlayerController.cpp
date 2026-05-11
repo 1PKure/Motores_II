@@ -1,8 +1,11 @@
 #include "Controllers/GamePlayerController.h"
+
 #include "Blueprint/UserWidget.h"
 #include "Kismet/GameplayStatics.h"
 #include "UI/Menu/PauseMenuWidget.h"
 #include "UI/HUD/GameplayHUDWidget.h"
+#include "Characters/PlayerCharacter.h"
+#include "Components/HealthComponent.h"
 
 void AGamePlayerController::BeginPlay()
 {
@@ -12,6 +15,7 @@ void AGamePlayerController::BeginPlay()
 	SetInputMode(FInputModeGameOnly());
 
 	ShowGameplayHUD();
+	SetGameplayInputEnabled(true);
 }
 
 void AGamePlayerController::SetupInputComponent()
@@ -32,9 +36,92 @@ void AGamePlayerController::ShowGameplayHUD()
 	}
 
 	GameplayHUDWidget = CreateWidget<UGameplayHUDWidget>(this, GameplayHUDWidgetClass);
-	if (GameplayHUDWidget)
+
+	if (!GameplayHUDWidget)
 	{
-		GameplayHUDWidget->AddToViewport();
+		UE_LOG(LogTemp, Error, TEXT("Failed to create GameplayHUDWidget."));
+		return;
+	}
+
+	GameplayHUDWidget->AddToViewport(0);
+
+	APlayerCharacter* PlayerCharacter = Cast<APlayerCharacter>(GetPawn());
+
+	if (!IsValid(PlayerCharacter))
+	{
+		UE_LOG(LogTemp, Error, TEXT("GamePlayerController: PlayerCharacter is invalid."));
+		return;
+	}
+
+	UHealthComponent* HealthComponent = PlayerCharacter->GetHealthComponent();
+
+	if (!IsValid(HealthComponent))
+	{
+		UE_LOG(LogTemp, Error, TEXT("GamePlayerController: HealthComponent is invalid."));
+		return;
+	}
+
+	GameplayHUDWidget->InitializeHealth(HealthComponent);
+}
+
+UGameplayHUDWidget* AGamePlayerController::GetGameplayHUDWidget() const
+{
+	return GameplayHUDWidget;
+}
+
+void AGamePlayerController::HandleMatchFinished(EGameplayResult Result)
+{
+	UGameplayStatics::SetGamePaused(this, true);
+	SetGameplayInputEnabled(false);
+
+	if (!IsValid(GameplayHUDWidget))
+	{
+		UE_LOG(LogTemp, Error, TEXT("HandleMatchFinished failed: GameplayHUDWidget is invalid."));
+		return;
+	}
+
+	switch (Result)
+	{
+	case EGameplayResult::Victory:
+		GameplayHUDWidget->ShowVictoryScreen();
+		break;
+
+	case EGameplayResult::Defeat:
+		GameplayHUDWidget->ShowDefeatScreen();
+		break;
+
+	default:
+		break;
+	}
+}
+
+void AGamePlayerController::SetGameplayInputEnabled(bool bEnabled)
+{
+	APawn* ControlledPawn = GetPawn();
+
+	if (IsValid(ControlledPawn))
+	{
+		if (bEnabled)
+		{
+			ControlledPawn->EnableInput(this);
+		}
+		else
+		{
+			ControlledPawn->DisableInput(this);
+		}
+	}
+
+	bShowMouseCursor = !bEnabled;
+
+	if (bEnabled)
+	{
+		SetInputMode(FInputModeGameOnly());
+	}
+	else
+	{
+		FInputModeUIOnly InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		SetInputMode(InputMode);
 	}
 }
 
@@ -66,7 +153,7 @@ void AGamePlayerController::OpenPauseMenu()
 
 	if (PauseMenuWidget && !PauseMenuWidget->IsInViewport())
 	{
-		PauseMenuWidget->AddToViewport();
+		PauseMenuWidget->AddToViewport(10);
 	}
 
 	FInputModeUIOnly InputMode;
