@@ -7,6 +7,8 @@ AGameplayGameMode::AGameplayGameMode()
 {
 	MainMenuLevelName = TEXT("LV_MainMenu");
 	CurrentResult = EGameplayResult::None;
+	RequiredEnemiesToWin = 3;
+	DefeatedEnemies = 0;
 }
 
 void AGameplayGameMode::BeginPlay()
@@ -14,6 +16,7 @@ void AGameplayGameMode::BeginPlay()
 	Super::BeginPlay();
 
 	CurrentResult = EGameplayResult::None;
+	DefeatedEnemies = 0;
 }
 
 void AGameplayGameMode::HandleVictory()
@@ -24,6 +27,39 @@ void AGameplayGameMode::HandleVictory()
 void AGameplayGameMode::HandleDefeat()
 {
 	FinishMatch(EGameplayResult::Defeat);
+}
+
+void AGameplayGameMode::NotifyEnemyKilled()
+{
+	if (IsMatchFinished())
+	{
+		return;
+	}
+
+	DefeatedEnemies++;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Enemy killed. Progress: %d / %d"),
+		DefeatedEnemies,
+		RequiredEnemiesToWin
+	);
+
+	if (DefeatedEnemies >= RequiredEnemiesToWin)
+	{
+		HandleVictory();
+	}
+}
+
+int32 AGameplayGameMode::GetDefeatedEnemies() const
+{
+	return DefeatedEnemies;
+}
+
+int32 AGameplayGameMode::GetRequiredEnemiesToWin() const
+{
+	return RequiredEnemiesToWin;
 }
 
 void AGameplayGameMode::FinishMatch(EGameplayResult Result)
