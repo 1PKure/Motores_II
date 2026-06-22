@@ -1,11 +1,11 @@
 #include "Controllers/GamePlayerController.h"
 
 #include "Blueprint/UserWidget.h"
-#include "Kismet/GameplayStatics.h"
-#include "UI/Menu/PauseMenuWidget.h"
-#include "UI/HUD/GameplayHUDWidget.h"
 #include "Characters/PlayerCharacter.h"
 #include "Components/HealthComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "UI/HUD/GameplayHUDWidget.h"
+#include "UI/Menu/PauseMenuWidget.h"
 
 void AGamePlayerController::BeginPlay()
 {
@@ -15,6 +15,8 @@ void AGamePlayerController::BeginPlay()
 	SetInputMode(FInputModeGameOnly());
 
 	ShowGameplayHUD();
+	InitializeGameplayHUDFromPawn(GetPawn());
+
 	SetGameplayInputEnabled(true);
 }
 
@@ -28,28 +30,48 @@ void AGamePlayerController::SetupInputComponent()
 	}
 }
 
+void AGamePlayerController::OnPossess(APawn* InPawn)
+{
+	Super::OnPossess(InPawn);
+
+	InitializeGameplayHUDFromPawn(InPawn);
+}
+
 void AGamePlayerController::ShowGameplayHUD()
 {
-	if (!GameplayHUDWidgetClass || GameplayHUDWidget)
+	if (!GameplayHUDWidgetClass)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ShowGameplayHUD failed: GameplayHUDWidgetClass is not assigned."));
+		return;
+	}
+
+	if (IsValid(GameplayHUDWidget))
 	{
 		return;
 	}
 
 	GameplayHUDWidget = CreateWidget<UGameplayHUDWidget>(this, GameplayHUDWidgetClass);
 
-	if (!GameplayHUDWidget)
+	if (!IsValid(GameplayHUDWidget))
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to create GameplayHUDWidget."));
+		UE_LOG(LogTemp, Error, TEXT("ShowGameplayHUD failed: widget creation returned null."));
 		return;
 	}
 
 	GameplayHUDWidget->AddToViewport(0);
+}
 
-	APlayerCharacter* PlayerCharacter = Cast<APlayerCharacter>(GetPawn());
+void AGamePlayerController::InitializeGameplayHUDFromPawn(APawn* PawnToInitialize)
+{
+	if (!IsValid(GameplayHUDWidget))
+	{
+		return;
+	}
+
+	APlayerCharacter* PlayerCharacter = Cast<APlayerCharacter>(PawnToInitialize);
 
 	if (!IsValid(PlayerCharacter))
 	{
-		UE_LOG(LogTemp, Error, TEXT("GamePlayerController: PlayerCharacter is invalid."));
 		return;
 	}
 
@@ -57,7 +79,7 @@ void AGamePlayerController::ShowGameplayHUD()
 
 	if (!IsValid(HealthComponent))
 	{
-		UE_LOG(LogTemp, Error, TEXT("GamePlayerController: HealthComponent is invalid."));
+		UE_LOG(LogTemp, Error, TEXT("InitializeGameplayHUDFromPawn failed: HealthComponent is invalid."));
 		return;
 	}
 
@@ -71,7 +93,23 @@ UGameplayHUDWidget* AGamePlayerController::GetGameplayHUDWidget() const
 
 void AGamePlayerController::HandleMatchFinished(EGameplayResult Result)
 {
-	UGameplayStatics::SetGamePaused(this, true);
+	if (bMatchFinished || Result == EGameplayResult::None)
+	{
+		return;
+	}
+
+	bMatchFinished = true;
+
+	if (IsValid(PauseMenuWidget) && PauseMenuWidget->IsInViewport())
+	{
+		PauseMenuWidget->RemoveFromParent();
+	}
+
+	bIsPauseMenuOpen = false;
+
+	ShowGameplayHUD();
+
+	SetPause(true);
 	SetGameplayInputEnabled(false);
 
 	if (!IsValid(GameplayHUDWidget))
@@ -127,6 +165,11 @@ void AGamePlayerController::SetGameplayInputEnabled(bool bEnabled)
 
 void AGamePlayerController::TogglePauseMenu()
 {
+	if (bMatchFinished)
+	{
+		return;
+	}
+
 	if (bIsPauseMenuOpen)
 	{
 		ClosePauseMenu();
@@ -139,19 +182,19 @@ void AGamePlayerController::TogglePauseMenu()
 
 void AGamePlayerController::OpenPauseMenu()
 {
-	if (bIsPauseMenuOpen)
+	if (bIsPauseMenuOpen || bMatchFinished)
 	{
 		return;
 	}
 
 	SetPause(true);
 
-	if (PauseMenuWidgetClass && !PauseMenuWidget)
+	if (PauseMenuWidgetClass && !IsValid(PauseMenuWidget))
 	{
 		PauseMenuWidget = CreateWidget<UPauseMenuWidget>(this, PauseMenuWidgetClass);
 	}
 
-	if (PauseMenuWidget && !PauseMenuWidget->IsInViewport())
+	if (IsValid(PauseMenuWidget) && !PauseMenuWidget->IsInViewport())
 	{
 		PauseMenuWidget->AddToViewport(10);
 	}
@@ -171,13 +214,14 @@ void AGamePlayerController::ClosePauseMenu()
 		return;
 	}
 
-	if (PauseMenuWidget && PauseMenuWidget->IsInViewport())
+	if (IsValid(PauseMenuWidget) && PauseMenuWidget->IsInViewport())
 	{
 		PauseMenuWidget->RemoveFromParent();
 	}
 
 	SetPause(false);
 	SetInputMode(FInputModeGameOnly());
+
 	bShowMouseCursor = false;
 	bIsPauseMenuOpen = false;
 }
@@ -190,7 +234,7 @@ void AGamePlayerController::ResumeGame()
 void AGamePlayerController::ReturnToMainMenu()
 {
 	SetPause(false);
-	UGameplayStatics::OpenLevel(this, FName("LV_MainMenu"));
+	UGameplayStatics::OpenLevel(this, MainMenuLevelName);
 }
 
 void AGamePlayerController::RestartCurrentLevel()

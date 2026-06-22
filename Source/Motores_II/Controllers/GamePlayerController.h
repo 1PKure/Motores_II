@@ -17,27 +17,28 @@ class MOTORES_II_API AGamePlayerController : public APlayerController
 public:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
-	
+	virtual void OnPossess(APawn* InPawn) override;
+
 	UFUNCTION(BlueprintCallable, Category = "Gameplay UI")
 	void HandleMatchFinished(EGameplayResult Result);
 
 	UFUNCTION(BlueprintCallable, Category = "Gameplay UI")
 	UGameplayHUDWidget* GetGameplayHUDWidget() const;
-	
-	UFUNCTION(BlueprintCallable)
+
+	UFUNCTION(BlueprintCallable, Category = "Gameplay UI")
+	void ShowGameplayHUD();
+
+	UFUNCTION(BlueprintCallable, Category = "Pause")
 	void TogglePauseMenu();
 
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, Category = "Pause")
 	void ResumeGame();
 
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, Category = "Level Flow")
 	void ReturnToMainMenu();
 
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, Category = "Level Flow")
 	void RestartCurrentLevel();
-
-	UFUNCTION(BlueprintCallable)
-	void ShowGameplayHUD();
 
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
@@ -45,6 +46,9 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
 	TSubclassOf<UUserWidget> GameplayHUDWidgetClass;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Levels")
+	FName MainMenuLevelName = TEXT("LV_MainMenu");
 
 private:
 	UPROPERTY()
@@ -54,8 +58,10 @@ private:
 	TObjectPtr<UGameplayHUDWidget> GameplayHUDWidget;
 
 	bool bIsPauseMenuOpen = false;
+	bool bMatchFinished = false;
 
 	void OpenPauseMenu();
 	void ClosePauseMenu();
 	void SetGameplayInputEnabled(bool bEnabled);
+	void InitializeGameplayHUDFromPawn(APawn* PawnToInitialize);
 };

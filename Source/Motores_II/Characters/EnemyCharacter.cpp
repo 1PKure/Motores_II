@@ -1,6 +1,5 @@
 #include "Characters/EnemyCharacter.h"
 
-#include "AIController.h"
 #include "Characters/PlayerCharacter.h"
 #include "Components/HealthComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -14,11 +13,20 @@ AEnemyCharacter::AEnemyCharacter()
 
 	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("HealthComponent"));
 
-	bCanAttack = true;
-	bIsDead = false;
-	TargetPlayer = nullptr;
-
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+	bUseControllerRotationYaw = false;
+
+	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
+
+	if (IsValid(MovementComponent))
+	{
+		MovementComponent->bOrientRotationToMovement = false;
+		MovementComponent->RotationRate = FRotator(0.0f, 720.0f, 0.0f);
+		MovementComponent->MaxWalkSpeed = PatrolSpeed;
+
+		MovementComponent->bConstrainToPlane = false;
+		MovementComponent->bSnapToPlaneAtStart = false;
+	}
 }
 
 void AEnemyCharacter::BeginPlay()
@@ -29,21 +37,14 @@ void AEnemyCharacter::BeginPlay()
 	{
 		HealthComponent->OnDeath.AddDynamic(this, &AEnemyCharacter::HandleDeath);
 	}
-	else
-	{
-		UE_LOG(LogTemp, Error, TEXT("EnemyCharacter BeginPlay failed: HealthComponent is invalid."));
-	}
 
 	OnTakeAnyDamage.AddDynamic(this, &AEnemyCharacter::HandleAnyDamage);
 
-	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
-
-	if (IsValid(MovementComponent))
-	{
-		MovementComponent->MaxWalkSpeed = ChaseSpeed;
-	}
+	LockedDepthY = GetActorLocation().Y;
 
 	FindTargetPlayer();
+
+	SetEnemyState(EEnemyState::Patrol, true);
 }
 
 void AEnemyCharacter::Tick(float DeltaTime)
@@ -56,6 +57,11 @@ void AEnemyCharacter::Tick(float DeltaTime)
 	}
 
 	UpdateEnemyBehavior();
+
+	if (bLockDepthAxis)
+	{
+		LockDepthAxisPosition();
+	}
 }
 
 UHealthComponent* AEnemyCharacter::GetHealthComponent() const
@@ -63,14 +69,14 @@ UHealthComponent* AEnemyCharacter::GetHealthComponent() const
 	return HealthComponent;
 }
 
+EEnemyState AEnemyCharacter::GetCurrentState() const
+{
+	return CurrentState;
+}
+
 void AEnemyCharacter::FindTargetPlayer()
 {
 	TargetPlayer = Cast<APlayerCharacter>(UGameplayStatics::GetPlayerCharacter(this, 0));
-
-	if (!IsValid(TargetPlayer))
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EnemyCharacter could not find PlayerCharacter."));
-	}
 }
 
 void AEnemyCharacter::UpdateEnemyBehavior()
@@ -81,20 +87,168 @@ void AEnemyCharacter::UpdateEnemyBehavior()
 		return;
 	}
 
-	const float DistanceToTarget = GetDistanceToTarget();
+	switch (CurrentState)
+	{
+	case EEnemyState::Patrol:
+		HandlePatrolState();
+		break;
 
-	if (DistanceToTarget > DetectionRange)
+	case EEnemyState::Chase:
+		HandleChaseState();
+		break;
+
+	case EEnemyState::Attack:
+		HandleAttackState();
+		break;
+
+	case EEnemyState::Dead:
+		HandleDeadState();
+		break;
+
+	default:
+		break;
+	}
+}
+
+void AEnemyCharacter::SetEnemyState(EEnemyState NewState, bool bForce)
+{
+	if (!bForce && CurrentState == NewState)
 	{
 		return;
 	}
 
-	if (DistanceToTarget <= AttackRange)
+	CurrentState = NewState;
+
+	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
+
+	if (!IsValid(MovementComponent))
 	{
-		TryAttackTarget();
+		return;
+	}
+
+	switch (CurrentState)
+	{
+	case EEnemyState::Patrol:
+		MovementComponent->SetMovementMode(MOVE_Walking);
+		MovementComponent->MaxWalkSpeed = PatrolSpeed;
+		MovementComponent->bOrientRotationToMovement = false;
+		StopMovement();
+		break;
+
+	case EEnemyState::Chase:
+		MovementComponent->SetMovementMode(MOVE_Walking);
+		MovementComponent->MaxWalkSpeed = ChaseSpeed;
+		MovementComponent->bOrientRotationToMovement = false;
+		break;
+
+	case EEnemyState::Attack:
+		MovementComponent->SetMovementMode(MOVE_Walking);
+		MovementComponent->bOrientRotationToMovement = false;
+		StopMovement();
+		break;
+
+	case EEnemyState::Dead:
+		StopMovement();
+		MovementComponent->DisableMovement();
+		break;
+
+	default:
+		break;
+	}
+}
+
+void AEnemyCharacter::HandlePatrolState()
+{
+	if (IsTargetValidForDetection())
+	{
+		SetEnemyState(EEnemyState::Chase);
+		return;
+	}
+
+	MoveToCurrentPatrolPoint();
+}
+
+void AEnemyCharacter::HandleChaseState()
+{
+	if (!IsTargetInsideLoseSightRange() || !IsTargetInsideAllowedHeight())
+	{
+		SetEnemyState(EEnemyState::Patrol);
+		return;
+	}
+
+	if (IsTargetInsideAttackRange())
+	{
+		SetEnemyState(EEnemyState::Attack);
 		return;
 	}
 
 	ChaseTarget();
+}
+
+void AEnemyCharacter::HandleAttackState()
+{
+	if (!IsTargetInsideLoseSightRange() || !IsTargetInsideAllowedHeight())
+	{
+		SetEnemyState(EEnemyState::Patrol);
+		return;
+	}
+
+	if (!IsTargetInsideAttackRange())
+	{
+		SetEnemyState(EEnemyState::Chase);
+		return;
+	}
+
+	StopMovement();
+	FaceTarget();
+	TryAttackTarget();
+}
+
+void AEnemyCharacter::HandleDeadState()
+{
+	StopMovement();
+}
+
+void AEnemyCharacter::MoveToCurrentPatrolPoint()
+{
+	if (PatrolPoints.Num() == 0)
+	{
+		StopMovement();
+		return;
+	}
+
+	if (!PatrolPoints.IsValidIndex(CurrentPatrolPointIndex))
+	{
+		CurrentPatrolPointIndex = 0;
+	}
+
+	AActor* CurrentPatrolPoint = PatrolPoints[CurrentPatrolPointIndex];
+
+	if (!IsValid(CurrentPatrolPoint))
+	{
+		SelectNextPatrolPoint();
+		return;
+	}
+
+	const float DistanceToPatrolPoint = GetHorizontalDistanceToLocation(CurrentPatrolPoint->GetActorLocation());
+
+	if (DistanceToPatrolPoint <= PatrolSwitchDistance)
+	{
+		SelectNextPatrolPoint();
+		return;
+	}
+
+	MoveAlongX(CurrentPatrolPoint->GetActorLocation().X, PatrolAcceptanceRadius);
+}
+
+void AEnemyCharacter::SelectNextPatrolPoint()
+{
+	if (PatrolPoints.Num() == 0)
+	{
+		return;
+	}
+
+	CurrentPatrolPointIndex = (CurrentPatrolPointIndex + 1) % PatrolPoints.Num();
 }
 
 void AEnemyCharacter::ChaseTarget()
@@ -104,15 +258,53 @@ void AEnemyCharacter::ChaseTarget()
 		return;
 	}
 
-	AAIController* AIController = Cast<AAIController>(GetController());
+	MoveAlongX(TargetPlayer->GetActorLocation().X, ChaseAcceptanceRadius);
+}
 
-	if (!IsValid(AIController))
+void AEnemyCharacter::MoveAlongX(float TargetX, float AcceptanceDistance)
+{
+	const float DeltaX = TargetX - GetActorLocation().X;
+
+	if (FMath::Abs(DeltaX) <= AcceptanceDistance)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("EnemyCharacter has no valid AIController."));
+		StopMovement();
 		return;
 	}
 
-	AIController->MoveToActor(TargetPlayer, AttackRange * 0.8f);
+	const float DirectionX = DeltaX > 0.0f ? 1.0f : -1.0f;
+
+	AddMovementInput(FVector(DirectionX, 0.0f, 0.0f), 1.0f);
+
+	const float TargetYaw = DirectionX > 0.0f ? 0.0f : 180.0f;
+	SetActorRotation(FRotator(0.0f, TargetYaw, 0.0f));
+}
+
+void AEnemyCharacter::FaceTarget()
+{
+	if (!IsValid(TargetPlayer))
+	{
+		return;
+	}
+
+	const float DirectionX = TargetPlayer->GetActorLocation().X - GetActorLocation().X;
+
+	if (FMath::IsNearlyZero(DirectionX))
+	{
+		return;
+	}
+
+	const float TargetYaw = DirectionX > 0.0f ? 0.0f : 180.0f;
+	SetActorRotation(FRotator(0.0f, TargetYaw, 0.0f));
+}
+
+void AEnemyCharacter::StopMovement()
+{
+	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
+
+	if (IsValid(MovementComponent))
+	{
+		MovementComponent->StopMovementImmediately();
+	}
 }
 
 void AEnemyCharacter::TryAttackTarget()
@@ -122,7 +314,17 @@ void AEnemyCharacter::TryAttackTarget()
 		return;
 	}
 
+	if (!IsTargetInsideAttackRange() || !IsTargetInsideAllowedHeight())
+	{
+		return;
+	}
+
 	bCanAttack = false;
+
+	if (IsValid(AttackMontage))
+	{
+		PlayAnimMontage(AttackMontage);
+	}
 
 	UGameplayStatics::ApplyDamage(
 		TargetPlayer,
@@ -131,8 +333,6 @@ void AEnemyCharacter::TryAttackTarget()
 		this,
 		nullptr
 	);
-
-	UE_LOG(LogTemp, Warning, TEXT("Enemy attacked player. Damage: %f"), AttackDamage);
 
 	GetWorldTimerManager().SetTimer(
 		AttackTimerHandle,
@@ -148,14 +348,70 @@ void AEnemyCharacter::ResetAttack()
 	bCanAttack = true;
 }
 
-float AEnemyCharacter::GetDistanceToTarget() const
+float AEnemyCharacter::GetHorizontalDistanceToTarget() const
 {
 	if (!IsValid(TargetPlayer))
 	{
 		return TNumericLimits<float>::Max();
 	}
 
-	return FVector::Dist(GetActorLocation(), TargetPlayer->GetActorLocation());
+	return FMath::Abs(TargetPlayer->GetActorLocation().X - GetActorLocation().X);
+}
+
+float AEnemyCharacter::GetHorizontalDistanceToLocation(const FVector& Location) const
+{
+	return FMath::Abs(Location.X - GetActorLocation().X);
+}
+
+float AEnemyCharacter::GetHeightDifferenceToTarget() const
+{
+	if (!IsValid(TargetPlayer))
+	{
+		return TNumericLimits<float>::Max();
+	}
+
+	return FMath::Abs(TargetPlayer->GetActorLocation().Z - GetActorLocation().Z);
+}
+
+bool AEnemyCharacter::IsTargetValidForDetection() const
+{
+	return IsValid(TargetPlayer)
+		&& IsTargetInsideDetectionRange()
+		&& IsTargetInsideAllowedHeight();
+}
+
+bool AEnemyCharacter::IsTargetInsideDetectionRange() const
+{
+	return GetHorizontalDistanceToTarget() <= DetectionRange;
+}
+
+bool AEnemyCharacter::IsTargetInsideLoseSightRange() const
+{
+	return GetHorizontalDistanceToTarget() <= LoseSightRange;
+}
+
+bool AEnemyCharacter::IsTargetInsideAttackRange() const
+{
+	return GetHorizontalDistanceToTarget() <= AttackRange;
+}
+
+bool AEnemyCharacter::IsTargetInsideAllowedHeight() const
+{
+	return GetHeightDifferenceToTarget() <= MaxChaseHeightDifference;
+}
+
+void AEnemyCharacter::LockDepthAxisPosition()
+{
+	FVector CurrentLocation = GetActorLocation();
+
+	if (FMath::IsNearlyEqual(CurrentLocation.Y, LockedDepthY, 1.0f))
+	{
+		return;
+	}
+
+	CurrentLocation.Y = LockedDepthY;
+
+	SetActorLocation(CurrentLocation, false);
 }
 
 void AEnemyCharacter::HandleAnyDamage(
@@ -189,14 +445,9 @@ void AEnemyCharacter::HandleDeath()
 
 	bIsDead = true;
 
+	SetEnemyState(EEnemyState::Dead);
+
 	GetWorldTimerManager().ClearTimer(AttackTimerHandle);
-
-	AAIController* AIController = Cast<AAIController>(GetController());
-
-	if (IsValid(AIController))
-	{
-		AIController->StopMovement();
-	}
 
 	AGameplayGameMode* GameplayGameMode = Cast<AGameplayGameMode>(UGameplayStatics::GetGameMode(this));
 
@@ -210,6 +461,4 @@ void AEnemyCharacter::HandleDeath()
 	}
 
 	SetLifeSpan(2.0f);
-
-	UE_LOG(LogTemp, Warning, TEXT("Enemy died."));
 }

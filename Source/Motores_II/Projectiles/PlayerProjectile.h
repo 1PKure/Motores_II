@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-
 #include "PlayerProjectile.generated.h"
 
 class USphereComponent;
@@ -12,8 +11,8 @@ UCLASS()
 class MOTORES_II_API APlayerProjectile : public AActor
 {
 	GENERATED_BODY()
-	
-public:	
+
+public:
 	APlayerProjectile();
 
 	void InitializeProjectile(const FVector& Direction);
@@ -22,10 +21,10 @@ protected:
 	virtual void BeginPlay() override;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	USphereComponent* CollisionComponent;
+	USphereComponent* CollisionComponent = nullptr;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	UProjectileMovementComponent* ProjectileMovementComponent;
+	UProjectileMovementComponent* ProjectileMovementComponent = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat")
 	float Damage = 50.0f;
@@ -45,4 +44,19 @@ protected:
 		bool bFromSweep,
 		const FHitResult& SweepResult
 	);
+
+	UFUNCTION()
+	void HandleHit(
+		UPrimitiveComponent* HitComponent,
+		AActor* OtherActor,
+		UPrimitiveComponent* OtherComponent,
+		FVector NormalImpulse,
+		const FHitResult& Hit
+	);
+
+private:
+	bool bHasImpacted = false;
+
+	bool TryDamageEnemy(AActor* OtherActor);
+	void FinishImpact();
 };

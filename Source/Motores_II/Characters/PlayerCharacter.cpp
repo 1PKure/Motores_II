@@ -1,14 +1,16 @@
 #include "Characters/PlayerCharacter.h"
+
+#include "Characters/EnemyCharacter.h"
 #include "Components/HealthComponent.h"
 #include "Components/InputComponent.h"
-#include "InputCoreTypes.h"
+#include "EnhancedInputComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameModes/GameplayGameMode.h"
+#include "InputAction.h"
 #include "Kismet/GameplayStatics.h"
 #include "Motores_II/Projectiles/PlayerProjectile.h"
-#include "EnhancedInputComponent.h"
-#include "InputAction.h"
 #include "TimerManager.h"
+
 APlayerCharacter::APlayerCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
@@ -21,82 +23,52 @@ void APlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (HealthComponent)
+	if (IsValid(HealthComponent))
 	{
 		HealthComponent->OnDeath.AddDynamic(this, &APlayerCharacter::HandleDeath);
 	}
-	
+
 	OnTakeAnyDamage.AddDynamic(this, &APlayerCharacter::HandleAnyDamage);
+
+	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
+
+	if (IsValid(MovementComponent))
+	{
+		DefaultWalkSpeed = MovementComponent->MaxWalkSpeed;
+		DefaultJumpZVelocity = MovementComponent->JumpZVelocity;
+	}
 }
 
 void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	UE_LOG(LogTemp, Warning, TEXT("[ATTACK DEBUG] SetupPlayerInputComponent called. Character: %s"), *GetName());
-
 	if (!IsValid(PlayerInputComponent))
 	{
-		UE_LOG(LogTemp, Error, TEXT("[ATTACK DEBUG] PlayerInputComponent is invalid."));
+		UE_LOG(LogTemp, Error, TEXT("PlayerInputComponent is invalid."));
 		return;
 	}
 
-	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
+	UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent);
+
+	if (!IsValid(EnhancedInputComponent))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ATTACK DEBUG] PlayerInputComponent is EnhancedInputComponent."));
-
-		if (IsValid(AttackAction))
-		{
-			UE_LOG(LogTemp, Warning, TEXT("[ATTACK DEBUG] Binding AttackAction: %s"), *AttackAction->GetName());
-
-			EnhancedInputComponent->BindAction(
-				AttackAction,
-				ETriggerEvent::Started,
-				this,
-				&APlayerCharacter::AttackInputStarted
-			);
-
-			EnhancedInputComponent->BindAction(
-				AttackAction,
-				ETriggerEvent::Triggered,
-				this,
-				&APlayerCharacter::AttackInputTriggered
-			);
-
-			EnhancedInputComponent->BindAction(
-				AttackAction,
-				ETriggerEvent::Completed,
-				this,
-				&APlayerCharacter::AttackInputCompleted
-			);
-		}
-		else
-		{
-			UE_LOG(LogTemp, Error, TEXT("[ATTACK DEBUG] AttackAction is NOT assigned."));
-		}
-	}
-	else
-	{
-		UE_LOG(LogTemp, Error, TEXT("[ATTACK DEBUG] PlayerInputComponent is NOT EnhancedInputComponent."));
-	}
-
-	PlayerInputComponent->BindKey(EKeys::H, IE_Pressed, this, &APlayerCharacter::TestDamage);
-
-	
-	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &APlayerCharacter::DebugDirectMouseAttack);
-	PlayerInputComponent->BindKey(EKeys::X, IE_Pressed, this, &APlayerCharacter::DebugDirectXAttack);
-}
-
-void APlayerCharacter::TestDamage()
-{
-	if (!HealthComponent)
-	{
-		UE_LOG(LogTemp, Error, TEXT("HealthComponent is null."));
+		UE_LOG(LogTemp, Error, TEXT("PlayerInputComponent is not an EnhancedInputComponent."));
 		return;
 	}
-	
-	UE_LOG(LogTemp, Warning, TEXT("Test damage applied."));
-	HealthComponent->ApplyDamage(20.0f);
+
+	if (!IsValid(AttackAction))
+	{
+		UE_LOG(LogTemp, Error, TEXT("AttackAction is not assigned."));
+		return;
+	}
+
+	EnhancedInputComponent->BindAction(
+		AttackAction,
+		ETriggerEvent::Started,
+		this,
+		&APlayerCharacter::AttackInputStarted
+	);
 }
 
 UHealthComponent* APlayerCharacter::GetHealthComponent() const
@@ -106,7 +78,9 @@ UHealthComponent* APlayerCharacter::GetHealthComponent() const
 
 void APlayerCharacter::HandleDeath()
 {
-	UE_LOG(LogTemp, Warning, TEXT("Player died."));
+	GetWorldTimerManager().ClearTimer(SpeedBoostTimerHandle);
+	GetWorldTimerManager().ClearTimer(JumpBoostTimerHandle);
+	GetWorldTimerManager().ClearTimer(AttackTimerHandle);
 
 	AGameplayGameMode* GameplayGameMode = Cast<AGameplayGameMode>(UGameplayStatics::GetGameMode(this));
 
@@ -157,6 +131,44 @@ void APlayerCharacter::ResetSpeedBoost()
 	MovementComponent->MaxWalkSpeed = DefaultWalkSpeed;
 }
 
+void APlayerCharacter::ApplyJumpBoost(float JumpMultiplier, float Duration)
+{
+	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
+
+	if (!IsValid(MovementComponent))
+	{
+		return;
+	}
+
+	if (DefaultJumpZVelocity <= 0.0f)
+	{
+		DefaultJumpZVelocity = MovementComponent->JumpZVelocity;
+	}
+
+	MovementComponent->JumpZVelocity = DefaultJumpZVelocity * JumpMultiplier;
+
+	GetWorldTimerManager().ClearTimer(JumpBoostTimerHandle);
+	GetWorldTimerManager().SetTimer(
+		JumpBoostTimerHandle,
+		this,
+		&APlayerCharacter::ResetJumpBoost,
+		Duration,
+		false
+	);
+}
+
+void APlayerCharacter::ResetJumpBoost()
+{
+	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
+
+	if (!IsValid(MovementComponent))
+	{
+		return;
+	}
+
+	MovementComponent->JumpZVelocity = DefaultJumpZVelocity;
+}
+
 void APlayerCharacter::HandleAnyDamage(
 	AActor* DamagedActor,
 	float Damage,
@@ -181,31 +193,14 @@ void APlayerCharacter::HandleAnyDamage(
 
 void APlayerCharacter::Attack()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[ATTACK DEBUG] Attack() called. Character: %s"), *GetName());
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("[ATTACK DEBUG] bCanAttack: %s"),
-		bCanAttack ? TEXT("true") : TEXT("false")
-	);
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("[ATTACK DEBUG] ProjectileClass: %s"),
-		IsValid(ProjectileClass) ? *ProjectileClass->GetName() : TEXT("NULL")
-	);
-
 	if (!bCanAttack)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ATTACK DEBUG] Attack blocked: cooldown active."));
 		return;
 	}
 
 	if (!IsValid(ProjectileClass))
 	{
-		UE_LOG(LogTemp, Error, TEXT("[ATTACK DEBUG] Attack failed: ProjectileClass is NULL."));
+		UE_LOG(LogTemp, Error, TEXT("Attack failed: ProjectileClass is not assigned."));
 		return;
 	}
 
@@ -213,22 +208,13 @@ void APlayerCharacter::Attack()
 
 	if (!IsValid(World))
 	{
-		UE_LOG(LogTemp, Error, TEXT("[ATTACK DEBUG] Attack failed: World is invalid."));
 		return;
 	}
 
 	const FVector AttackDirection = GetAttackDirection();
 
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("[ATTACK DEBUG] AttackDirection: %s"),
-		*AttackDirection.ToString()
-	);
-
 	if (AttackDirection.IsNearlyZero())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ATTACK DEBUG] Attack failed: AttackDirection is nearly zero."));
 		return;
 	}
 
@@ -238,15 +224,6 @@ void APlayerCharacter::Attack()
 		+ FVector(0.0f, 0.0f, ProjectileSpawnOffset.Z);
 
 	const FRotator SpawnRotation = AttackDirection.Rotation();
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("[ATTACK DEBUG] Spawning projectile. Location: %s | Rotation: %s | Class: %s"),
-		*SpawnLocation.ToString(),
-		*SpawnRotation.ToString(),
-		*ProjectileClass->GetName()
-	);
 
 	FActorSpawnParameters SpawnParameters;
 	SpawnParameters.Owner = this;
@@ -262,11 +239,9 @@ void APlayerCharacter::Attack()
 
 	if (!IsValid(Projectile))
 	{
-		UE_LOG(LogTemp, Error, TEXT("[ATTACK DEBUG] SpawnActor returned NULL."));
+		UE_LOG(LogTemp, Error, TEXT("Attack failed: Projectile spawn returned null."));
 		return;
 	}
-
-	UE_LOG(LogTemp, Warning, TEXT("[ATTACK DEBUG] Projectile spawned successfully: %s"), *Projectile->GetName());
 
 	Projectile->InitializeProjectile(AttackDirection);
 
@@ -279,8 +254,6 @@ void APlayerCharacter::Attack()
 		AttackCooldown,
 		false
 	);
-
-	UE_LOG(LogTemp, Warning, TEXT("[ATTACK DEBUG] Attack finished correctly."));
 }
 
 void APlayerCharacter::ResetAttack()
@@ -302,28 +275,5 @@ FVector APlayerCharacter::GetAttackDirection() const
 
 void APlayerCharacter::AttackInputStarted()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[ATTACK DEBUG] IA_Attack Started received."));
-	Attack();
-}
-
-void APlayerCharacter::AttackInputTriggered()
-{
-	UE_LOG(LogTemp, Warning, TEXT("[ATTACK DEBUG] IA_Attack Triggered received."));
-}
-
-void APlayerCharacter::AttackInputCompleted()
-{
-	UE_LOG(LogTemp, Warning, TEXT("[ATTACK DEBUG] IA_Attack Completed received."));
-}
-
-void APlayerCharacter::DebugDirectMouseAttack()
-{
-	UE_LOG(LogTemp, Warning, TEXT("[ATTACK DEBUG] Direct LeftMouseButton received."));
-	Attack();
-}
-
-void APlayerCharacter::DebugDirectXAttack()
-{
-	UE_LOG(LogTemp, Warning, TEXT("[ATTACK DEBUG] Direct X received."));
 	Attack();
 }

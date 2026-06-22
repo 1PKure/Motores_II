@@ -1,25 +1,28 @@
-#include "PlayerProjectile.h"
+#include "Projectiles/PlayerProjectile.h"
 
-#include "Motores_II/Characters/EnemyCharacter.h"
+#include "Characters/EnemyCharacter.h"
 #include "Components/SphereComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 
-
 APlayerProjectile::APlayerProjectile()
 {
 	PrimaryActorTick.bCanEverTick = false;
-	UE_LOG(LogTemp, Warning, TEXT("[PROJECTILE DEBUG] Constructor called."));
+
 	CollisionComponent = CreateDefaultSubobject<USphereComponent>(TEXT("CollisionComponent"));
 	SetRootComponent(CollisionComponent);
 
 	CollisionComponent->InitSphereRadius(18.0f);
-	CollisionComponent->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	CollisionComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	CollisionComponent->SetCollisionObjectType(ECC_WorldDynamic);
+
 	CollisionComponent->SetCollisionResponseToAllChannels(ECR_Ignore);
 	CollisionComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
-	CollisionComponent->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Overlap);
+	CollisionComponent->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+	CollisionComponent->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+
 	CollisionComponent->SetGenerateOverlapEvents(true);
+	CollisionComponent->SetNotifyRigidBodyCollision(true);
 
 	ProjectileMovementComponent = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("ProjectileMovementComponent"));
 	ProjectileMovementComponent->InitialSpeed = 1200.0f;
@@ -32,13 +35,17 @@ APlayerProjectile::APlayerProjectile()
 void APlayerProjectile::BeginPlay()
 {
 	Super::BeginPlay();
-	UE_LOG(LogTemp, Warning, TEXT("[PROJECTILE DEBUG] BeginPlay called. Projectile: %s"), *GetName());
 
 	if (IsValid(CollisionComponent))
 	{
 		CollisionComponent->OnComponentBeginOverlap.AddDynamic(
 			this,
 			&APlayerProjectile::HandleBeginOverlap
+		);
+
+		CollisionComponent->OnComponentHit.AddDynamic(
+			this,
+			&APlayerProjectile::HandleHit
 		);
 	}
 
@@ -47,8 +54,6 @@ void APlayerProjectile::BeginPlay()
 
 void APlayerProjectile::InitializeProjectile(const FVector& Direction)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[PROJECTILE DEBUG] InitializeProjectile called. Direction: %s"), *Direction.ToString());
-
 	if (!IsValid(ProjectileMovementComponent))
 	{
 		UE_LOG(LogTemp, Error, TEXT("InitializeProjectile failed: ProjectileMovementComponent is invalid."));
@@ -65,12 +70,6 @@ void APlayerProjectile::InitializeProjectile(const FVector& Direction)
 
 	ProjectileMovementComponent->Velocity =
 		SafeDirection * ProjectileMovementComponent->InitialSpeed;
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("[PROJECTILE DEBUG] Velocity set to: %s"),
-		*ProjectileMovementComponent->Velocity.ToString()
-	);
 }
 
 void APlayerProjectile::HandleBeginOverlap(
@@ -82,7 +81,7 @@ void APlayerProjectile::HandleBeginOverlap(
 	const FHitResult& SweepResult
 )
 {
-	if (!IsValid(OtherActor))
+	if (bHasImpacted || !IsValid(OtherActor))
 	{
 		return;
 	}
@@ -92,24 +91,75 @@ void APlayerProjectile::HandleBeginOverlap(
 		return;
 	}
 
-	if (OtherActor->IsA<AEnemyCharacter>())
+	if (TryDamageEnemy(OtherActor))
 	{
-		UGameplayStatics::ApplyDamage(
-			OtherActor,
-			Damage,
-			GetInstigatorController(),
-			this,
-			nullptr
-		);
-
-		UE_LOG(LogTemp, Warning, TEXT("Projectile hit enemy. Damage: %f"), Damage);
-
-		Destroy();
+		FinishImpact();
 		return;
 	}
 
 	if (bDestroyOnAnyHit)
 	{
-		Destroy();
+		FinishImpact();
 	}
+}
+
+void APlayerProjectile::HandleHit(
+	UPrimitiveComponent* HitComponent,
+	AActor* OtherActor,
+	UPrimitiveComponent* OtherComponent,
+	FVector NormalImpulse,
+	const FHitResult& Hit
+)
+{
+	if (bHasImpacted || !IsValid(OtherActor))
+	{
+		return;
+	}
+
+	if (OtherActor == this || OtherActor == GetOwner())
+	{
+		return;
+	}
+
+	if (TryDamageEnemy(OtherActor))
+	{
+		FinishImpact();
+		return;
+	}
+
+	if (bDestroyOnAnyHit)
+	{
+		FinishImpact();
+	}
+}
+
+bool APlayerProjectile::TryDamageEnemy(AActor* OtherActor)
+{
+	AEnemyCharacter* EnemyCharacter = Cast<AEnemyCharacter>(OtherActor);
+
+	if (!IsValid(EnemyCharacter))
+	{
+		return false;
+	}
+
+	UGameplayStatics::ApplyDamage(
+		EnemyCharacter,
+		Damage,
+		GetInstigatorController(),
+		this,
+		nullptr
+	);
+
+	return true;
+}
+
+void APlayerProjectile::FinishImpact()
+{
+	if (bHasImpacted)
+	{
+		return;
+	}
+
+	bHasImpacted = true;
+	Destroy();
 }
