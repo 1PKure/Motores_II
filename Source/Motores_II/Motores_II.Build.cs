@@ -18,7 +18,11 @@ public class Motores_II : ModuleRules
 			"StateTreeModule",
 			"GameplayStateTreeModule",
 			"UMG",
-			"Slate"
+			"Slate",
+			"GameplayAbilities",
+			"GameplayTags",
+    		"GameplayTasks",
+    		"Niagara"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });

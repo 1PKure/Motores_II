@@ -84,7 +84,6 @@ void AEnemyCharacter::UpdateEnemyBehavior()
 	if (!IsValid(TargetPlayer))
 	{
 		FindTargetPlayer();
-		return;
 	}
 
 	switch (CurrentState)
@@ -185,6 +184,7 @@ void AEnemyCharacter::HandleChaseState()
 	ChaseTarget();
 }
 
+
 void AEnemyCharacter::HandleAttackState()
 {
 	if (!IsTargetInsideLoseSightRange() || !IsTargetInsideAllowedHeight())
@@ -230,15 +230,27 @@ void AEnemyCharacter::MoveToCurrentPatrolPoint()
 		return;
 	}
 
+	const float SwitchDistance = FMath::Max(10.0f, FMath::Min(PatrolSwitchDistance, PatrolAcceptanceRadius));
 	const float DistanceToPatrolPoint = GetHorizontalDistanceToLocation(CurrentPatrolPoint->GetActorLocation());
 
-	if (DistanceToPatrolPoint <= PatrolSwitchDistance)
+	if (DistanceToPatrolPoint <= SwitchDistance)
 	{
 		SelectNextPatrolPoint();
-		return;
+
+		if (!PatrolPoints.IsValidIndex(CurrentPatrolPointIndex))
+		{
+			return;
+		}
+
+		CurrentPatrolPoint = PatrolPoints[CurrentPatrolPointIndex];
+
+		if (!IsValid(CurrentPatrolPoint))
+		{
+			return;
+		}
 	}
 
-	MoveAlongX(CurrentPatrolPoint->GetActorLocation().X, PatrolAcceptanceRadius);
+	MoveAlongX(CurrentPatrolPoint->GetActorLocation().X, SwitchDistance);
 }
 
 void AEnemyCharacter::SelectNextPatrolPoint()

@@ -1,11 +1,12 @@
 #include "Characters/PlayerCharacter.h"
 
-#include "Characters/EnemyCharacter.h"
+#include "AbilitySystemComponent.h"
 #include "Components/HealthComponent.h"
 #include "Components/InputComponent.h"
 #include "EnhancedInputComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameModes/GameplayGameMode.h"
+#include "GameplayAbilitySpec.h"
 #include "InputAction.h"
 #include "Kismet/GameplayStatics.h"
 #include "Motores_II/Projectiles/PlayerProjectile.h"
@@ -17,11 +18,15 @@ APlayerCharacter::APlayerCharacter(const FObjectInitializer& ObjectInitializer)
 	PrimaryActorTick.bCanEverTick = false;
 
 	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("HealthComponent"));
+	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 }
 
 void APlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	InitializeAbilitySystem();
+	GiveStartupAbilities();
 
 	if (IsValid(HealthComponent))
 	{
@@ -43,23 +48,17 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	if (!IsValid(PlayerInputComponent))
-	{
-		UE_LOG(LogTemp, Error, TEXT("PlayerInputComponent is invalid."));
-		return;
-	}
-
 	UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent);
 
 	if (!IsValid(EnhancedInputComponent))
 	{
-		UE_LOG(LogTemp, Error, TEXT("PlayerInputComponent is not an EnhancedInputComponent."));
+		UE_LOG(LogTemp, Error, TEXT("Player input failed: InputComponent is not EnhancedInputComponent."));
 		return;
 	}
 
 	if (!IsValid(AttackAction))
 	{
-		UE_LOG(LogTemp, Error, TEXT("AttackAction is not assigned."));
+		UE_LOG(LogTemp, Error, TEXT("Player input failed: AttackAction is not assigned."));
 		return;
 	}
 
@@ -69,6 +68,24 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 		this,
 		&APlayerCharacter::AttackInputStarted
 	);
+
+	UE_LOG(LogTemp, Warning, TEXT("PlayerCharacter bound AttackAction: %s"), *AttackAction->GetName());
+}
+
+void APlayerCharacter::AttackInputStarted()
+{
+	UE_LOG(LogTemp, Warning, TEXT("Attack input received."));
+	Attack();
+}
+
+UAbilitySystemComponent* APlayerCharacter::GetAbilitySystemComponent() const
+{
+	return AbilitySystemComponent;
+}
+
+void APlayerCharacter::RequestShoot()
+{
+	Attack();
 }
 
 UHealthComponent* APlayerCharacter::GetHealthComponent() const
@@ -76,11 +93,47 @@ UHealthComponent* APlayerCharacter::GetHealthComponent() const
 	return HealthComponent;
 }
 
+void APlayerCharacter::InitializeAbilitySystem()
+{
+	if (!IsValid(AbilitySystemComponent))
+	{
+		UE_LOG(LogTemp, Error, TEXT("InitializeAbilitySystem failed: AbilitySystemComponent is invalid."));
+		return;
+	}
+
+	AbilitySystemComponent->InitAbilityActorInfo(this, this);
+}
+
+void APlayerCharacter::GiveStartupAbilities()
+{
+	if (!IsValid(AbilitySystemComponent))
+	{
+		UE_LOG(LogTemp, Error, TEXT("GiveStartupAbilities failed: AbilitySystemComponent is invalid."));
+		return;
+	}
+
+	if (!IsValid(ShootAbilityClass))
+	{
+		UE_LOG(LogTemp, Error, TEXT("GiveStartupAbilities failed: ShootAbilityClass is not assigned."));
+		return;
+	}
+
+	AbilitySystemComponent->GiveAbility(
+		FGameplayAbilitySpec(ShootAbilityClass, 1, INDEX_NONE, this)
+	);
+
+	UE_LOG(LogTemp, Warning, TEXT("GA_Shoot granted successfully: %s"), *ShootAbilityClass->GetName());
+}
+
 void APlayerCharacter::HandleDeath()
 {
 	GetWorldTimerManager().ClearTimer(SpeedBoostTimerHandle);
 	GetWorldTimerManager().ClearTimer(JumpBoostTimerHandle);
-	GetWorldTimerManager().ClearTimer(AttackTimerHandle);
+
+	if (IsValid(AbilitySystemComponent))
+	{
+		AbilitySystemComponent->CancelAllAbilities();
+	}
 
 	AGameplayGameMode* GameplayGameMode = Cast<AGameplayGameMode>(UGameplayStatics::GetGameMode(this));
 
@@ -193,29 +246,56 @@ void APlayerCharacter::HandleAnyDamage(
 
 void APlayerCharacter::Attack()
 {
-	if (!bCanAttack)
+	UE_LOG(LogTemp, Warning, TEXT("PlayerCharacter::Attack called."));
+
+	if (!IsValid(AbilitySystemComponent))
 	{
+		UE_LOG(LogTemp, Error, TEXT("Attack failed: AbilitySystemComponent is invalid."));
 		return;
 	}
 
+	if (!IsValid(ShootAbilityClass))
+	{
+		UE_LOG(LogTemp, Error, TEXT("Attack failed: ShootAbilityClass is not assigned."));
+		return;
+	}
+
+	const bool bActivated = AbilitySystemComponent->TryActivateAbilityByClass(ShootAbilityClass);
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("TryActivateAbilityByClass result: %s"),
+		bActivated ? TEXT("true") : TEXT("false")
+	);
+
+	if (!bActivated)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("GA_Shoot was not activated. It may be on cooldown or blocked by GAS."));
+	}
+}
+
+bool APlayerCharacter::SpawnProjectileFromAbility()
+{
+	UE_LOG(LogTemp, Warning, TEXT("SpawnProjectileFromAbility called."));
 	if (!IsValid(ProjectileClass))
 	{
-		UE_LOG(LogTemp, Error, TEXT("Attack failed: ProjectileClass is not assigned."));
-		return;
+		UE_LOG(LogTemp, Error, TEXT("SpawnProjectileFromAbility failed: ProjectileClass is not assigned."));
+		return false;
 	}
 
 	UWorld* World = GetWorld();
 
 	if (!IsValid(World))
 	{
-		return;
+		return false;
 	}
 
 	const FVector AttackDirection = GetAttackDirection();
 
 	if (AttackDirection.IsNearlyZero())
 	{
-		return;
+		return false;
 	}
 
 	const FVector SpawnLocation =
@@ -239,26 +319,13 @@ void APlayerCharacter::Attack()
 
 	if (!IsValid(Projectile))
 	{
-		UE_LOG(LogTemp, Error, TEXT("Attack failed: Projectile spawn returned null."));
-		return;
+		UE_LOG(LogTemp, Error, TEXT("SpawnProjectileFromAbility failed: Projectile spawn returned null."));
+		return false;
 	}
 
 	Projectile->InitializeProjectile(AttackDirection);
 
-	bCanAttack = false;
-
-	World->GetTimerManager().SetTimer(
-		AttackTimerHandle,
-		this,
-		&APlayerCharacter::ResetAttack,
-		AttackCooldown,
-		false
-	);
-}
-
-void APlayerCharacter::ResetAttack()
-{
-	bCanAttack = true;
+	return true;
 }
 
 FVector APlayerCharacter::GetAttackDirection() const
@@ -271,9 +338,4 @@ FVector APlayerCharacter::GetAttackDirection() const
 	}
 
 	return ForwardVector.Y >= 0.0f ? FVector::RightVector : -FVector::RightVector;
-}
-
-void APlayerCharacter::AttackInputStarted()
-{
-	Attack();
 }
